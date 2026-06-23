@@ -11,11 +11,18 @@ class QwenEvaluator(BaseEvaluator):
     GPU recommended for reasonable inference speed.
     """
 
-    def __init__(self, model_id: str = "Qwen/Qwen3-VL-8B-Instruct"):
+    def __init__(self, model_id: str = "Qwen/Qwen3-VL-8B-Instruct",
+                 max_image_size: int = 512, vision_chunk_size=None,
+                 attn_implementation=None):
         super().__init__(model_id)
         self.model = None
         self.processor = None
+        self.max_image_size = max_image_size
+        self.vision_chunk_size = vision_chunk_size
+        self.attn_implementation = attn_implementation
         self._load_model()
+        if vision_chunk_size:
+            self._install_chunked_vision_encoder(vision_chunk_size)
 
     def _load_model(self):
         """Load Qwen3-VL model and processor."""
@@ -23,23 +30,69 @@ class QwenEvaluator(BaseEvaluator):
 
         print(f"Loading {self.model_id}...")
 
-        # Use bfloat16 for better memory efficiency on GPU
-        self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            self.model_id,
-            dtype=torch.bfloat16,
-            device_map="auto",
-        )
+        kwargs = dict(dtype=torch.bfloat16, device_map="auto")
+        if self.attn_implementation:
+            kwargs["attn_implementation"] = self.attn_implementation
+
+        self.model = Qwen3VLForConditionalGeneration.from_pretrained(self.model_id, **kwargs)
 
         self.processor = AutoProcessor.from_pretrained(self.model_id)
         print(f"Model loaded on {next(self.model.parameters()).device}")
+
+    def _install_chunked_vision_encoder(self, chunk_size: int):
+        """Monkey-patch get_image_features so the vision tower processes images
+        in fixed-size chunks. Avoids OOM in the vision encoder when many images
+        are passed at once; results are mathematically identical because each
+        image's patches are processed independently inside the encoder.
+        """
+        inner = self.model.model  # Qwen3VLModel
+        visual = inner.visual
+        merge_sq = visual.spatial_merge_size ** 2
+
+        def chunked_get_image_features(pixel_values, image_grid_thw=None):
+            if image_grid_thw is None or len(image_grid_thw) <= chunk_size:
+                pixel_values_typed = pixel_values.type(visual.dtype)
+                embeds, deepstack = visual(pixel_values_typed, grid_thw=image_grid_thw)
+                split_sizes = (image_grid_thw.prod(-1) // merge_sq).tolist()
+                return torch.split(embeds, split_sizes), deepstack
+
+            patches_per_image = (image_grid_thw[:, 0] * image_grid_thw[:, 1] *
+                                 image_grid_thw[:, 2]).tolist()
+
+            all_embed_splits = []
+            all_deepstack_chunks = None
+            pixel_idx = 0
+            for chunk_start in range(0, len(image_grid_thw), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(image_grid_thw))
+                chunk_grid = image_grid_thw[chunk_start:chunk_end]
+                chunk_patch_count = sum(patches_per_image[chunk_start:chunk_end])
+                chunk_pixels = pixel_values[pixel_idx:pixel_idx + chunk_patch_count]
+                pixel_idx += chunk_patch_count
+
+                embeds, deepstack = visual(chunk_pixels.type(visual.dtype),
+                                           grid_thw=chunk_grid)
+                split_sizes = (chunk_grid.prod(-1) // merge_sq).tolist()
+                all_embed_splits.extend(torch.split(embeds, split_sizes))
+
+                if all_deepstack_chunks is None:
+                    all_deepstack_chunks = [[d] for d in deepstack]
+                else:
+                    for i, d in enumerate(deepstack):
+                        all_deepstack_chunks[i].append(d)
+                del embeds, deepstack
+
+            deepstack_concat = [torch.cat(parts, dim=0) for parts in all_deepstack_chunks]
+            return tuple(all_embed_splits), deepstack_concat
+
+        inner.get_image_features = chunked_get_image_features
+        print(f"Chunked vision encoder enabled (chunk_size={chunk_size})")
 
     def _encode_image(self, image: Image.Image) -> Dict[str, Any]:
         """Return image in Qwen-compatible format.
 
         Qwen expects images as PIL Images in the message content.
         """
-        # Resize large images to save memory
-        max_size = 512
+        max_size = self.max_image_size
         if max(image.size) > max_size:
             image = image.copy()
             image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
@@ -47,13 +100,15 @@ class QwenEvaluator(BaseEvaluator):
         return {"type": "image", "image": image}
 
     def check_image_capacity(self, n_images: int) -> bool:
-        """Probe with realistic 512x512 images so GPU OOM is caught accurately.
+        """Probe with realistic images so GPU OOM is caught accurately.
 
         The base-class probe uses 1x1 px which produces far fewer image tokens
         than real usage; that lets the probe pass at sequence lengths that then
-        OOM during the actual evaluation.
+        OOM during the actual evaluation. We use the evaluator's configured
+        max_image_size so the probe matches the inference path.
         """
-        test_img = Image.new("RGB", (512, 512), (255, 255, 255))
+        s = self.max_image_size
+        test_img = Image.new("RGB", (s, s), (255, 255, 255))
         encoded = [self._encode_image(test_img) for _ in range(n_images)]
         content = [{"type": "text", "text": "Reply with the number 1."}] + encoded
         messages = [{"role": "user", "content": content}]

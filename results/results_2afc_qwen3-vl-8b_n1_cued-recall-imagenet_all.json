@@ -1,0 +1,118 @@
+{
+  "_metadata": {
+    "task": "2-AFC Recognition",
+    "timestamp": "20260516_001245",
+    "dataset": "cued-recall-imagenet",
+    "n_images": 1,
+    "n_trials": 10,
+    "models": [
+      "qwen3-vl-8b"
+    ],
+    "summary": {
+      "qwen3-vl-8b": {
+        "accuracy": 1.0,
+        "d_prime": 2.3909000374002667,
+        "mem_score": 1.0
+      }
+    },
+    "foil_type": "all"
+  },
+  "qwen3-vl-8b": {
+    "trials": [
+      {
+        "trial": 0,
+        "target": 1,
+        "response": 1,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "1"
+      },
+      {
+        "trial": 1,
+        "target": 2,
+        "response": 2,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "2"
+      },
+      {
+        "trial": 2,
+        "target": 2,
+        "response": 2,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "2"
+      },
+      {
+        "trial": 3,
+        "target": 1,
+        "response": 1,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "1"
+      },
+      {
+        "trial": 4,
+        "target": 2,
+        "response": 2,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "2"
+      },
+      {
+        "trial": 5,
+        "target": 2,
+        "response": 2,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "2"
+      },
+      {
+        "trial": 6,
+        "target": 1,
+        "response": 1,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "1"
+      },
+      {
+        "trial": 7,
+        "target": 2,
+        "response": 2,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "2"
+      },
+      {
+        "trial": 8,
+        "target": 1,
+        "response": 1,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "1"
+      },
+      {
+        "trial": 9,
+        "target": 1,
+        "response": 1,
+        "correct": 1,
+        "foil_type": "exemplar",
+        "raw_response": "1"
+      }
+    ],
+    "accuracy": 1.0,
+    "valid_accuracy": 1.0,
+    "d_prime": 2.3909000374002667,
+    "mem_score": 1.0,
+    "n_trials": 10,
+    "n_valid_trials": 10,
+    "n_correct": 10,
+    "n_parse_failures": 0,
+    "accuracy_by_type": {
+      "exemplar": 1.0
+    },
+    "d_prime_by_type": {
+      "exemplar": 2.3909000374002667
+    }
+  }
+}

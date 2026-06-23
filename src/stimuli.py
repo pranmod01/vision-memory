@@ -236,6 +236,87 @@ class ThingsDataset:
         return metadata
 
 
+class CuedRecallImageNetDataset:
+    """Streams maxbennett/cued-recall-imagenet, organized by class.
+
+    The HF dataset is a WebDataset of ImageNet shards: each row has a JPG
+    image and a __key__ like "class_0000/img_00000165". We stream lazily and
+    cache decoded PIL images in memory for the classes we sample.
+    """
+    REPO_ID = "maxbennett/cued-recall-imagenet"
+
+    def __init__(self, n_categories=None, exemplars_per_category=1, split="train"):
+        self.n_categories = n_categories
+        self.exemplars_per_category = exemplars_per_category
+        self.split = split
+        self.category_groups = {}
+        self.category_names = []
+        self.category_metadata = {}
+        self._load()
+
+    def _load(self):
+        from datasets import load_dataset
+        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+        ds = load_dataset(self.REPO_ID, split=self.split, streaming=True, token=hf_token)
+
+        print(f"Streaming {self.REPO_ID} (split={self.split}, "
+              f"n_categories={self.n_categories}, exemplars_per_category={self.exemplars_per_category})...")
+
+        for item in ds:
+            key = item.get("__key__") or ""
+            if "/" not in key:
+                continue
+            cat = key.split("/", 1)[0]
+
+            if cat not in self.category_groups:
+                if self.n_categories and len(self.category_groups) >= self.n_categories:
+                    continue
+                self.category_groups[cat] = []
+                self.category_metadata[cat] = []
+                self.category_names.append(cat)
+
+            if len(self.category_groups[cat]) < self.exemplars_per_category:
+                img = item.get("jpg")
+                if img is None:
+                    continue
+                if not isinstance(img, Image.Image):
+                    img = Image.fromarray(np.array(img))
+                self.category_groups[cat].append(img.convert("RGB"))
+                self.category_metadata[cat].append({
+                    "source": "streaming",
+                    "dataset_name": self.REPO_ID,
+                    "category": cat,
+                    "key": key,
+                })
+
+            if (self.n_categories
+                    and len(self.category_groups) >= self.n_categories
+                    and all(len(self.category_groups[c]) >= self.exemplars_per_category
+                            for c in self.category_names)):
+                break
+
+        print(f"Loaded {len(self.category_groups)} cued-recall-imagenet classes "
+              f"with up to {self.exemplars_per_category} exemplars each.")
+
+    def __len__(self):
+        return len(self.category_names)
+
+    def get_image(self, index, exemplar_index=0):
+        cat = self.category_names[index]
+        exemplars = self.category_groups[cat]
+        return exemplars[exemplar_index % len(exemplars)]
+
+    def get_metadata(self, index, exemplar_index=0):
+        cat = self.category_names[index]
+        exemplars = self.category_groups[cat]
+        exemplar_id = exemplar_index % len(exemplars)
+        metadata = {"category": cat, "category_id": index, "exemplar_id": exemplar_id}
+        extra = self.category_metadata.get(cat, [])
+        if exemplar_id < len(extra):
+            metadata.update(extra[exemplar_id])
+        return metadata
+
+
 class BradyDataset:
     """Handles Brady2008 and Brady2013 datasets."""
     HF_COLLECTIONS = {

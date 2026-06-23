@@ -3,7 +3,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.stimuli import BradyDataset, DirectoryDataset, ThingsDataset
+from src.stimuli import BradyDataset, CuedRecallImageNetDataset, DirectoryDataset, ThingsDataset
+
+
+CUED_RECALL_IMAGENET = "cued-recall-imagenet"
 
 
 class RecognitionTaskBase:
@@ -177,6 +180,21 @@ class AFCRecognitionTask(RecognitionTaskBase):
             else:
                 n_cats = n_images
             self.dataset = ThingsDataset(n_categories=n_cats, exemplars_per_category=exemplars)
+        elif dataset_name == CUED_RECALL_IMAGENET:
+            if foil_type == "state":
+                raise ValueError(
+                    "State foils not supported for cued-recall-imagenet (no paired state images)."
+                )
+            exemplars = 2 if foil_type in ["exemplar", "all"] else 1
+            if foil_type == "novel":
+                n_cats = n_images * 2
+            elif foil_type == "all":
+                n_cats = (n_images * 3 + 1) // 2
+            else:
+                n_cats = n_images
+            self.dataset = CuedRecallImageNetDataset(
+                n_categories=n_cats, exemplars_per_category=exemplars
+            )
         else:
             self.dataset = BradyDataset(type="Objects", source=source, repo_id=repo_id)
 
@@ -197,12 +215,17 @@ class AFCRecognitionTask(RecognitionTaskBase):
                 )
             return pairs
 
-        if self.dataset_name == "things":
+        if self.dataset_name in ("things", CUED_RECALL_IMAGENET):
             if foil_type == "novel" or foil_type == "all":
                 n_novel = n if foil_type == "novel" else n // 2
                 n_exemplar = n - n_novel
 
                 indices = list(range(len(self.dataset)))
+                if len(indices) < n_novel * 2:
+                    raise ValueError(
+                        f"THINGS novel pairs require {n_novel * 2} distinct categories "
+                        f"but only {len(indices)} are available (n_images={n}, foil_type={foil_type})."
+                    )
                 random.shuffle(indices)
 
                 for i in range(0, n_novel * 2, 2):
@@ -242,9 +265,13 @@ class AFCRecognitionTask(RecognitionTaskBase):
         if foil_type == "novel":
             obj_ds = BradyDataset(type="Objects", source=self.source, repo_id=self.repo_id)
             indices = list(range(len(obj_ds)))
+            if len(indices) < n * 2:
+                raise ValueError(
+                    f"Brady novel pairs require {n * 2} distinct objects "
+                    f"but only {len(indices)} are available (n_images={n})."
+                )
             random.shuffle(indices)
-            max_pairs = min(n, len(indices) // 2)
-            for i in range(0, max_pairs * 2, 2):
+            for i in range(0, n * 2, 2):
                 pairs.append(
                     {
                         "original": obj_ds.get_image(indices[i]),

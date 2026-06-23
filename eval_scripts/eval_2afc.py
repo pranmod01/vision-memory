@@ -143,7 +143,7 @@ def main():
 
     parser.add_argument("--foil-type", choices=["novel", "exemplar", "state", "all"], default="novel",
                         help="Type of foils to use")
-    parser.add_argument("--dataset", choices=["things", "Brady2008"], default="things",
+    parser.add_argument("--dataset", choices=["things", "Brady2008", "cued-recall-imagenet"], default="things",
                         help="Dataset to use")
     parser.add_argument("--output", type=str, default=None,
                         help="Output file path (default: results_2afc_<timestamp>.json)")
@@ -151,7 +151,20 @@ def main():
                         help="Write figures under output/plots (or --plot-dir)")
     parser.add_argument("--plot-dir", type=str, default=None,
                         help="Directory for figures (default: repo output/plots)")
+    parser.add_argument("--max-image-size", type=int, default=512,
+                        help="Max image dim (px) for local-inference evaluators (qwen, molmo2). Default 512.")
+    parser.add_argument("--vision-chunk-size", type=int, default=None,
+                        help="If set, qwen vision encoder runs on this many images per chunk (reduces peak GPU mem).")
+    parser.add_argument("--attn", type=str, default=None,
+                        choices=[None, "eager", "sdpa", "flash_attention_2"],
+                        help="attn_implementation for local models (qwen). Default: HF default.")
     args = parser.parse_args()
+
+    qwen_kwargs = dict(
+        max_image_size=args.max_image_size,
+        vision_chunk_size=args.vision_chunk_size,
+        attn_implementation=args.attn,
+    )
 
     evaluators = []
     for model in args.models:
@@ -165,7 +178,7 @@ def main():
         elif m == "gemini":
             evaluators.append(GoogleEvaluator())
         elif m == "qwen":
-            evaluators.append(QwenEvaluator("Qwen/Qwen3-VL-8B-Instruct"))
+            evaluators.append(QwenEvaluator("Qwen/Qwen3-VL-8B-Instruct", **qwen_kwargs))
         elif m == "molmo2":
             evaluators.append(Molmo2Evaluator("allenai/Molmo2-8B"))
         elif m.startswith("claude"):
@@ -173,7 +186,7 @@ def main():
         elif m.startswith("gemini"):
             evaluators.append(GoogleEvaluator(m))
         elif m.startswith("qwen") or m.startswith("Qwen"):
-            evaluators.append(QwenEvaluator(m))
+            evaluators.append(QwenEvaluator(m, **qwen_kwargs))
         elif m.startswith("molmo") or m.startswith("allenai"):
             evaluators.append(Molmo2Evaluator(m))
         else:
